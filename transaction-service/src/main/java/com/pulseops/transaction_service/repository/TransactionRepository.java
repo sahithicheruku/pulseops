@@ -13,4 +13,6 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     Page<Transaction> findByStatus(TransactionStatus status, Pageable pageable);
     long countByStatus(TransactionStatus status);
     List<Transaction> findByCreatedAtGreaterThanEqualAndCreatedAtLessThan(Instant from, Instant to);
+    List<Transaction> findBySource(String source);
+    void deleteBySource(String source);
 }

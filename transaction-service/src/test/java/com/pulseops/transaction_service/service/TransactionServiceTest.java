@@ -114,6 +114,25 @@ class TransactionServiceTest {
     }
 
     @Test
+    void createPersistsAndPublishesRequestedTraceId() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.setIfAbsent(eq("transaction:idempotency:trace-1"), anyString())).thenReturn(true);
+        when(repository.save(any(Transaction.class))).thenAnswer(invocation -> {
+            var input = invocation.getArgument(0, Transaction.class);
+            var saved = new Transaction(UUID.randomUUID(), input.getAmount(), input.getCurrency(), input.getDescription());
+            saved.assignTraceId(input.getTraceId());
+            return saved;
+        });
+
+        var transaction = service.create(new com.pulseops.transaction_service.dto.CreateTransactionRequest(
+                new BigDecimal("12.50"), "USD", "Trace me"), "trace-1", "trace-abc-123");
+
+        assertEquals("trace-abc-123", transaction.getTraceId());
+        verify(eventProducer).publish(org.mockito.ArgumentMatchers.argThat(event -> "trace-abc-123".equals(event.traceId())));
+        verify(historyRepository).save(org.mockito.ArgumentMatchers.argThat(history -> "trace-abc-123".equals(history.getTraceId())));
+    }
+
+    @Test
     void duplicateIdempotencyKeyReturnsExistingTransaction() {
         var id = UUID.randomUUID();
         var transaction = new Transaction(id, new BigDecimal("12.50"), "USD", "Coffee");
@@ -139,5 +158,39 @@ class TransactionServiceTest {
         when(historyRepository.findByTransactionIdOrderByChangedAtAsc(id)).thenReturn(history);
 
         assertEquals(history, service.getStatusHistory(id));
+    }
+
+    @Test
+    void deterministicBusinessRulePersistsFailureReason() {
+        var id = UUID.randomUUID();
+        var transaction = new Transaction(new BigDecimal("1000001"), "USD", "Large settlement");
+        when(repository.findById(id)).thenReturn(java.util.Optional.of(transaction));
+
+        service.processCreatedEvent(new TransactionCreatedEvent(id, transaction.getAmount(), transaction.getCurrency(),
+                TransactionStatus.RECEIVED, Instant.now()));
+
+        assertEquals(TransactionStatus.FAILED, transaction.getStatus());
+        assertEquals("Amount exceeds the transaction processing limit", transaction.getFailureReason());
+        assertEquals(1, transaction.getRetryCount());
+        verify(historyRepository).save(any(TransactionStatusHistory.class));
+        verify(eventProducer, never()).publish(any(TransactionCreatedEvent.class));
+    }
+
+    @Test
+    void retryRepublishesEligibleFailedTransactionAndAuditsReset() {
+        var id = UUID.randomUUID();
+        var transaction = new Transaction(id, new BigDecimal("12.50"), "USD", "Retry me");
+        transaction.recordFailure("Temporary processing failure");
+        when(repository.findById(id)).thenReturn(java.util.Optional.of(transaction));
+        when(repository.save(transaction)).thenReturn(transaction);
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.setIfAbsent("transaction:retry:" + id + ":0", "1")).thenReturn(true);
+
+        var retried = service.retry(id);
+
+        assertEquals(TransactionStatus.RECEIVED, retried.getStatus());
+        assertEquals(1, retried.getRetryCount());
+        verify(historyRepository).save(any(TransactionStatusHistory.class));
+        verify(eventProducer).publish(any(TransactionCreatedEvent.class));
     }
 }

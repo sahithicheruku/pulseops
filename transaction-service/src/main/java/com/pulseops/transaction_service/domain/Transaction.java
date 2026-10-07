@@ -29,6 +29,15 @@ public class Transaction {
     private TransactionStatus status = TransactionStatus.RECEIVED;
     private Instant createdAt;
     private Instant updatedAt;
+    @Column(length = 500)
+    private String failureReason;
+    @Column(nullable = false)
+    private int retryCount;
+    private Instant lastFailureAt;
+    @Column(nullable = false, length = 64)
+    private String traceId;
+    @Column(nullable = false, length = 20)
+    private String source = "USER";
 
     public Transaction() {
     }
@@ -53,14 +62,34 @@ public class Transaction {
     public TransactionStatus getStatus() { return status; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public String getFailureReason() { return failureReason; }
+    public int getRetryCount() { return retryCount; }
+    public Instant getLastFailureAt() { return lastFailureAt; }
+    public String getTraceId() { return traceId; }
+    public String getSource() { return source; }
 
 
     public void updateStatus(TransactionStatus status) { this.status = status; }
+    public void recordFailure(String reason) { this.status = TransactionStatus.FAILED; this.failureReason = reason; this.lastFailureAt = Instant.now(); }
+    public void prepareForRetry() { this.status = TransactionStatus.RECEIVED; this.failureReason = null; }
+    public void incrementRetryCount() { this.retryCount++; }
+    public void assignTraceId(String traceId) { this.traceId = traceId; }
+    public void applySeedData(Instant createdAt, TransactionStatus status, String failureReason,
+            int retryCount, Instant lastFailureAt) {
+        this.createdAt = createdAt;
+        this.updatedAt = createdAt;
+        this.status = status;
+        this.failureReason = failureReason;
+        this.retryCount = retryCount;
+        this.lastFailureAt = lastFailureAt;
+        this.traceId = this.traceId == null ? UUID.randomUUID().toString() : this.traceId;
+        this.source = "DEMO_SEED";
+    }
 
     @PrePersist
     private void setCreatedAt() {
-        createdAt = Instant.now();
-        updatedAt = createdAt;
+        if (createdAt == null) createdAt = Instant.now();
+        if (updatedAt == null) updatedAt = createdAt;
     }
 
     @PreUpdate

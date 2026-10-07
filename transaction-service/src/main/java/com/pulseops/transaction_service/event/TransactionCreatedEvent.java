@@ -10,6 +10,11 @@ public record TransactionCreatedEvent(
         BigDecimal amount,
         String currency,
         TransactionStatus status,
-        Instant createdAt
+        Instant createdAt,
+        String traceId
 ) {
+    public TransactionCreatedEvent(UUID transactionId, BigDecimal amount, String currency,
+            TransactionStatus status, Instant createdAt) {
+        this(transactionId, amount, currency, status, createdAt, null);
+    }
 }

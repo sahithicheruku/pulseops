@@ -48,11 +48,12 @@ public class TransactionController {
     public ResponseEntity<Transaction> create(
             @Valid @RequestBody CreateTransactionRequest request,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String correlationId,
             HttpServletRequest httpRequest) {
         if (!rateLimiter.allow(httpRequest.getRemoteAddr())) {
             throw new RateLimitExceededException();
         }
-        var transaction = service.create(request, idempotencyKey);
+        var transaction = service.create(request, idempotencyKey, correlationId);
         return ResponseEntity.status(201).body(transaction);
     }
 
@@ -65,6 +66,11 @@ public class TransactionController {
     public List<com.pulseops.transaction_service.domain.TransactionStatusHistory> getStatusHistory(
             @PathVariable UUID id) {
         return service.getStatusHistory(id);
+    }
+
+    @PostMapping("/{id}/retry")
+    public Transaction retry(@PathVariable UUID id) {
+        return service.retry(id);
     }
 
     @GetMapping(value = "/{id}/status/stream", produces = "text/event-stream")

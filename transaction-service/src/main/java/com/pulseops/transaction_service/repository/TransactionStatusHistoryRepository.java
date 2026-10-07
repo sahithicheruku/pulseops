@@ -7,4 +7,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface TransactionStatusHistoryRepository extends JpaRepository<TransactionStatusHistory, UUID> {
     List<TransactionStatusHistory> findByTransactionIdOrderByChangedAtAsc(UUID transactionId);
+    void deleteByTransactionIdIn(List<UUID> transactionIds);
 }

@@ -44,6 +44,24 @@ cp .env.example .env
 docker compose up --build
 ```
 
+For a portfolio-ready local environment with 120 persisted demo transactions, use the opt-in demo Compose override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
+```
+
+Open http://localhost:3001 and sign in with `DEMO_USERNAME` / `DEMO_PASSWORD` from `.env` (the demo override defaults to `demo` / `demo-password` when unset). Normal `docker compose up` does not seed data, and `docker-compose.production.yml` never enables the demo profile.
+
+To safely replace only demo records while preserving user-created transactions:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.demo.yml run --rm \
+  -e SPRING_MAIN_WEB_APPLICATION_TYPE=none \
+  -e DEMO_SEED_ACTION=reseed app
+```
+
+The demo seeder is deterministic, idempotent, and labels seeded rows with `source=DEMO_SEED`.
+
 | Service | URL |
 |---|---|
 | Frontend | http://localhost:3001 |
@@ -151,6 +169,20 @@ The root [Dockerfile](Dockerfile) builds the backend JAR in a multi-stage image.
 
 ```bash
 docker compose down
+```
+
+### Optional demo data
+
+The development-only `demo` profile can seed 120 deterministic, persisted transactions across the last 30 days:
+
+```bash
+./mvnw spring-boot:run -Dspring-boot.run.profiles=demo
+```
+
+Seeding is idempotent and marks records with `source=DEMO_SEED`. It never runs in the default or production profiles. To replace only demo records while preserving user-created transactions:
+
+```bash
+./mvnw spring-boot:run -Dspring-boot.run.profiles=demo -Dspring-boot.run.arguments="--app.demo.seed.action=reseed"
 ```
 
 GitHub Actions in `.github/workflows/ci.yml` runs backend Maven verification and frontend npm lint/build on pushes and pull requests. It does not deploy or publish artifacts.

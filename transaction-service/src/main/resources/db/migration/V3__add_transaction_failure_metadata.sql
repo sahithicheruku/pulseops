@@ -1,0 +1,4 @@
+ALTER TABLE transaction ADD COLUMN IF NOT EXISTS failure_reason VARCHAR(500);
+ALTER TABLE transaction ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE transaction ADD COLUMN IF NOT EXISTS last_failure_at TIMESTAMPTZ;
+ALTER TABLE transaction_status_history ADD COLUMN IF NOT EXISTS failure_reason VARCHAR(500);

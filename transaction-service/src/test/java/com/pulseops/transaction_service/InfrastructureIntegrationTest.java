@@ -3,9 +3,11 @@ package com.pulseops.transaction_service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.pulseops.transaction_service.event.TransactionCreatedEvent;
+import com.pulseops.transaction_service.service.AnalyticsService;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.sql.Timestamp;
 import java.util.Map;
 import java.util.UUID;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -68,9 +70,30 @@ class InfrastructureIntegrationTest {
     @Autowired
     KafkaTemplate<String, TransactionCreatedEvent> kafkaTemplate;
 
+    @Autowired
+    AnalyticsService analyticsService;
+
     @Test
     void connectsToPostgresRedisAndKafka() {
         assertThat(jdbcTemplate.queryForObject("SELECT 1", Integer.class)).isEqualTo(1);
+
+        var transactionId = UUID.randomUUID();
+        var createdAt = Instant.now().minusSeconds(30);
+        var completedAt = Instant.now();
+        jdbcTemplate.update("""
+                INSERT INTO transaction (id, amount, currency, description, status, created_at, updated_at,
+                    failure_reason, retry_count, last_failure_at, trace_id, source)
+                VALUES (?, 12.50, 'USD', 'Analytics integration', 3, ?, ?, NULL, 0, NULL, ?, 'USER')
+                """, transactionId, Timestamp.from(createdAt), Timestamp.from(completedAt), "integration-trace-" + transactionId);
+        jdbcTemplate.update("""
+                INSERT INTO transaction_status_history (id, transaction_id, status, changed_at, failure_reason, trace_id)
+                VALUES (?, ?, 'COMPLETED', ?, NULL, ?)
+                """, UUID.randomUUID(), transactionId, Timestamp.from(completedAt), "integration-trace-" + transactionId);
+        var analytics = analyticsService.getAnalytics("24h");
+        assertThat(analytics.totalTransactions()).isEqualTo(1);
+        assertThat(analytics.successfulTransactions()).isEqualTo(1);
+        assertThat(analytics.currencyDistribution()).containsEntry("USD", 1L);
+        assertThat(analytics.p95ProcessingLatencyMs()).isGreaterThan(0);
 
         var key = "integration:" + UUID.randomUUID();
         redisTemplate.opsForValue().set(key, "connected");

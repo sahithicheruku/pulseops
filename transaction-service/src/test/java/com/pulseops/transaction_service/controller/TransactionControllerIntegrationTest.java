@@ -53,7 +53,7 @@ class TransactionControllerIntegrationTest {
     void postCreatesTransaction() throws Exception {
         var transaction = new Transaction(new BigDecimal("12.50"), "USD", "Coffee");
         when(rateLimiter.allow(anyString())).thenReturn(true);
-        when(service.create(any(), anyString())).thenReturn(transaction);
+        when(service.create(any(), anyString(), org.mockito.ArgumentMatchers.any())).thenReturn(transaction);
 
         mockMvc.perform(post("/api/v1/transactions").with(jwt())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -148,5 +148,15 @@ class TransactionControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].transactionId").value(id.toString()))
                 .andExpect(jsonPath("$[0].status").value("RECEIVED"));
+    }
+
+    @Test
+    void retryReturnsConflictWhenTransactionIsNotEligible() throws Exception {
+        var id = UUID.randomUUID();
+        when(service.retry(id)).thenThrow(new IllegalStateException("Transaction is not eligible for retry"));
+
+        mockMvc.perform(post("/api/v1/transactions/{id}/retry", id).with(jwt()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Transaction is not eligible for retry"));
     }
 }

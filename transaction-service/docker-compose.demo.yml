@@ -1,0 +1,7 @@
+services:
+  app:
+    environment:
+      SPRING_PROFILES_ACTIVE: demo
+      DEMO_USERNAME: ${DEMO_USERNAME:-demo}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-demo-password}
+      DEMO_SEED_ACTION: ${DEMO_SEED_ACTION:-seed}

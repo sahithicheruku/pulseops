@@ -48,10 +48,13 @@ button, a, input, select, textarea { transition: border-color .18s ease, backgro
 .trace-timeline { position: relative; }
 .trace-line { position: absolute; left: 2rem; right: -1rem; top: 1rem; height: 1px; background: linear-gradient(90deg, #a7f3d0, #c7d2fe); }
 .trace-node { box-shadow: 0 0 0 4px rgba(16,185,129,.08); }
-.pipeline-panel { background: radial-gradient(circle at 100% 0%, rgba(99,102,241,.3), transparent 30rem), linear-gradient(120deg, #111b41, #1e1b4b); box-shadow: 0 20px 40px -30px rgba(30,27,75,.85); }
-.pipeline-connector { position: absolute; right: -1rem; width: 1rem; height: 1px; background: rgba(165,180,252,.5); }
+.pipeline-panel { background: #111a3a; box-shadow: 0 20px 40px -30px rgba(30,27,75,.85); }
+.architecture-node { transition: background-color .18s ease, border-color .18s ease, transform .18s ease; }
+.architecture-node:hover { border-color: rgba(165,180,252,.45); background: rgba(99,102,241,.16); transform: translateY(-2px); }
+.pipeline-connector { position: absolute; right: -.5rem; top: 50%; width: .5rem; height: 1px; background: rgba(165,180,252,.5); }
 .section-kicker { color: #6366f1; font-size: .66rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
 .event-dot { box-shadow: 0 0 0 4px rgba(99,102,241,.12); }
+.failure-panel { border-color: rgba(254,205,211,.9); }
 
 @media (max-width: 640px) {
   .page-heading { letter-spacing: -.035em; }
