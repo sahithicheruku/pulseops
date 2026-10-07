@@ -4,12 +4,13 @@ services:
     ports:
       - "8080:8080"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/pulseops
-      DB_USERNAME: pulseops
-      DB_PASSWORD: pulseops_dev
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/pulseops}
+      DB_USERNAME: ${DB_USERNAME:-pulseops}
+      DB_PASSWORD: ${DB_PASSWORD:-pulseops_dev}
+      JWT_SECRET: ${JWT_SECRET:-local-development-jwt-secret-change-me-32}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST:-redis}
+      SPRING_DATA_REDIS_PORT: ${SPRING_DATA_REDIS_PORT:-6379}
     depends_on:
       postgres:
         condition: service_healthy
@@ -17,17 +18,31 @@ services:
         condition: service_started
       redis:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:8080/actuator/health >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3001:80"
+    depends_on:
+      app:
+        condition: service_healthy
 
   postgres:
     image: postgres:16-alpine
     ports:
       - "5434:5432"
     environment:
-      POSTGRES_DB: pulseops
-      POSTGRES_USER: pulseops
-      POSTGRES_PASSWORD: pulseops_dev
+      POSTGRES_DB: ${POSTGRES_DB:-pulseops}
+      POSTGRES_USER: ${DB_USERNAME:-pulseops}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-pulseops_dev}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pulseops -d pulseops"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10

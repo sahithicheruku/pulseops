@@ -24,13 +24,16 @@ public class TransactionService {
     private final TransactionEventProducer eventProducer;
     private final StringRedisTemplate redisTemplate;
     private final TransactionStatusHistoryRepository historyRepository;
+    private final TransactionStatusStream statusStream;
 
     public TransactionService(TransactionRepository repository, TransactionEventProducer eventProducer,
-                              StringRedisTemplate redisTemplate, TransactionStatusHistoryRepository historyRepository) {
+                              StringRedisTemplate redisTemplate, TransactionStatusHistoryRepository historyRepository,
+                              TransactionStatusStream statusStream) {
         this.repository = repository;
         this.eventProducer = eventProducer;
         this.redisTemplate = redisTemplate;
         this.historyRepository = historyRepository;
+        this.statusStream = statusStream;
     }
 
     public Page<Transaction> findAll(Pageable pageable, TransactionStatus status) {
@@ -47,7 +50,8 @@ public class TransactionService {
 
         var transaction = repository.save(new Transaction(request.amount(), request.currency(), request.description()));
         redisTemplate.opsForValue().set(redisKey, transaction.getId().toString());
-        historyRepository.save(new TransactionStatusHistory(transaction.getId(), transaction.getStatus()));
+        var history = historyRepository.save(new TransactionStatusHistory(transaction.getId(), transaction.getStatus()));
+        if (history != null) statusStream.publish(history);
         log.info("event=transaction_created transactionId={} status={}",
                 transaction.getId(), transaction.getStatus());
         eventProducer.publish(new TransactionCreatedEvent(
@@ -76,7 +80,8 @@ public class TransactionService {
                 var previousStatus = transaction.getStatus();
                 transaction.updateStatus(status);
                 repository.save(transaction);
-                historyRepository.save(new TransactionStatusHistory(transaction.getId(), status));
+                var history = historyRepository.save(new TransactionStatusHistory(transaction.getId(), status));
+                if (history != null) statusStream.publish(history);
                 log.info("event=transaction_status_changed transactionId={} from={} to={}",
                         transaction.getId(), previousStatus, status);
             }

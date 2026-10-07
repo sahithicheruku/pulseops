@@ -6,6 +6,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import com.pulseops.transaction_service.controller.TransactionController;
 import com.pulseops.transaction_service.service.TransactionService;
 import com.pulseops.transaction_service.service.TransactionRateLimiter;
+import com.pulseops.transaction_service.service.TransactionStatusStream;
 
 @WebMvcTest(TransactionController.class)
 class TransactionServiceApplicationTests {
@@ -15,6 +16,9 @@ class TransactionServiceApplicationTests {
 
 	@MockitoBean
 	private TransactionRateLimiter rateLimiter;
+
+	@MockitoBean
+	private TransactionStatusStream statusStream;
 
 	@Test
 	void contextLoads() {

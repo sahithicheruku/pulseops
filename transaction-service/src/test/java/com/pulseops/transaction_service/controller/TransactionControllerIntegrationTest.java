@@ -14,6 +14,7 @@ import com.pulseops.transaction_service.domain.TransactionStatus;
 import com.pulseops.transaction_service.domain.TransactionStatusHistory;
 import com.pulseops.transaction_service.service.TransactionService;
 import com.pulseops.transaction_service.service.TransactionRateLimiter;
+import com.pulseops.transaction_service.service.TransactionStatusStream;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
@@ -44,6 +45,9 @@ class TransactionControllerIntegrationTest {
 
     @MockitoBean
     private TransactionRateLimiter rateLimiter;
+
+    @MockitoBean
+    private TransactionStatusStream statusStream;
 
     @Test
     void postCreatesTransaction() throws Exception {

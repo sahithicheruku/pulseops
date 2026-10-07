@@ -49,6 +49,9 @@ class TransactionServiceTest {
     @Mock
     private TransactionStatusHistoryRepository historyRepository;
 
+    @Mock
+    private TransactionStatusStream statusStream;
+
     @InjectMocks
     private TransactionService service;
 

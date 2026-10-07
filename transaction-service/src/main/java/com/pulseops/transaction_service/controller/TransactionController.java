@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import jakarta.servlet.http.HttpServletRequest;
 import com.pulseops.transaction_service.service.TransactionRateLimiter;
+import com.pulseops.transaction_service.service.TransactionStatusStream;
 import com.pulseops.transaction_service.controller.RateLimitExceededException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -27,10 +28,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class TransactionController {
     private final TransactionService service;
     private final TransactionRateLimiter rateLimiter;
+    private final TransactionStatusStream statusStream;
 
-    public TransactionController(TransactionService service, TransactionRateLimiter rateLimiter) {
+    public TransactionController(TransactionService service, TransactionRateLimiter rateLimiter, TransactionStatusStream statusStream) {
         this.service = service;
         this.rateLimiter = rateLimiter;
+        this.statusStream = statusStream;
     }
 
     @GetMapping
@@ -62,5 +65,11 @@ public class TransactionController {
     public List<com.pulseops.transaction_service.domain.TransactionStatusHistory> getStatusHistory(
             @PathVariable UUID id) {
         return service.getStatusHistory(id);
+    }
+
+    @GetMapping(value = "/{id}/status/stream", produces = "text/event-stream")
+    public org.springframework.web.servlet.mvc.method.annotation.SseEmitter streamStatus(@PathVariable UUID id) {
+        service.findById(id);
+        return statusStream.subscribe(id);
     }
 }
