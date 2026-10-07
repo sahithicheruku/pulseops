@@ -39,6 +39,13 @@ public class Transaction {
         this.description = description;
     }
 
+    public Transaction(UUID id, BigDecimal amount, String currency, String description) {
+        this.id = id;
+        this.amount = amount;
+        this.currency = currency;
+        this.description = description;
+    }
+
     public UUID getId() { return id; }
     public BigDecimal getAmount() { return amount; }
     public String getCurrency() { return currency; }
@@ -46,6 +53,9 @@ public class Transaction {
     public TransactionStatus getStatus() { return status; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+
+
+    public void updateStatus(TransactionStatus status) { this.status = status; }
 
     @PrePersist
     private void setCreatedAt() {
