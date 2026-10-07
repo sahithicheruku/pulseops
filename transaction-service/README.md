@@ -147,7 +147,7 @@ Database query indexes are managed by the Flyway migration in `src/main/resource
 
 ## Docker and CI
 
-The root [Dockerfile](Dockerfile) packages the backend JAR. [frontend/Dockerfile](frontend/Dockerfile) builds the React bundle and serves it with Nginx, including `/api` proxying and SPA fallback. `docker-compose.yml` starts frontend, backend, PostgreSQL, Kafka, and Redis together; the backend healthcheck gates frontend startup.
+The root [Dockerfile](Dockerfile) builds the backend JAR in a multi-stage image. [frontend/Dockerfile](frontend/Dockerfile) builds the React bundle and serves it with Nginx, including `/api` proxying, SSE support, and SPA fallback. `docker-compose.yml` is the development stack. Production uses [docker-compose.production.yml](docker-compose.production.yml) with Caddy HTTPS on ports 80/443; the backend, PostgreSQL, Kafka, Redis, and frontend remain private. See [docs/deployment.md](docs/deployment.md).
 
 ```bash
 docker compose down
