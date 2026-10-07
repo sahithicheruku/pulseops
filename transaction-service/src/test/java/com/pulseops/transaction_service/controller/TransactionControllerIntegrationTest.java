@@ -104,6 +104,18 @@ class TransactionControllerIntegrationTest {
     }
 
     @Test
+    void metricsRequiresJwt() throws Exception {
+        mockMvc.perform(get("/actuator/metrics"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void prometheusRequiresJwt() throws Exception {
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void postReturnsTooManyRequestsWhenRateLimitExceeded() throws Exception {
         when(rateLimiter.allow(anyString())).thenReturn(false);
 

@@ -22,6 +22,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -33,6 +34,7 @@ import org.testcontainers.utility.DockerImageName;
 @Testcontainers
 @SpringBootTest
 @AutoConfigureMockMvc
+@ActiveProfiles("performance-test")
 @EnabledIfSystemProperty(named = "loadTest", matches = "true")
 class TransactionCreationLoadTest {
     @Container
@@ -58,7 +60,6 @@ class TransactionCreationLoadTest {
         registry.add("spring.kafka.listener.auto-startup", () -> false);
         registry.add("spring.data.redis.host", redis::getHost);
         registry.add("spring.data.redis.port", () -> redis.getMappedPort(6379));
-        registry.add("app.rate-limit.transactions", () -> 1_000_000);
     }
 
     @Autowired
@@ -84,11 +85,13 @@ class TransactionCreationLoadTest {
             }
             Collections.sort(latencies);
 
-            double throughput = requests / ((System.nanoTime() - loadStarted) / 1_000_000_000.0);
+            long wallTimeNanos = System.nanoTime() - loadStarted;
+            double throughput = requests / (wallTimeNanos / 1_000_000_000.0);
             System.out.printf(
-                    "LOAD_RESULT requests=%d concurrency=%d throughput=%.2f req/s p50=%d ms p95=%d ms p99=%d ms%n",
-                    requests, concurrency, throughput,
-                    percentile(latencies, 0.50), percentile(latencies, 0.95), percentile(latencies, 0.99));
+                    "LOAD_RESULT requests=%d successful=%d failed=%d concurrency=%d throughput=%.2f req/s p50=%d ms p95=%d ms p99=%d ms wallTime=%d ms%n",
+                    requests, requests, 0, concurrency, throughput,
+                    percentile(latencies, 0.50), percentile(latencies, 0.95), percentile(latencies, 0.99),
+                    Duration.ofNanos(wallTimeNanos).toMillis());
         } finally {
             executor.shutdownNow();
             executor.awaitTermination(10, TimeUnit.SECONDS);
