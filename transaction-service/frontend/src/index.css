@@ -7,20 +7,69 @@
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #0f172a;
-  background: #f6f8fb;
+  background: #f5f7fb;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
 
 * { box-sizing: border-box; }
 
-body { margin: 0; min-width: 320px; min-height: 100vh; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: #f5f7fb; }
 
 button, input, select, textarea { font: inherit; }
 
 button, a, select, input, textarea { -webkit-tap-highlight-color: transparent; }
 
 ::selection { color: #312e81; background: #e0e7ff; }
+
+button, a, input, select, textarea { transition: border-color .18s ease, background-color .18s ease, color .18s ease, box-shadow .18s ease, transform .18s ease; }
+
+.app-shell { background: radial-gradient(circle at 84% -10%, rgba(224,231,255,.7), transparent 28rem), #f5f7fb; }
+.app-sidebar { background: linear-gradient(180deg, #101936 0%, #0c1430 100%); box-shadow: 14px 0 40px -25px rgba(15,23,42,.55); }
+.app-sidebar nav a { color: #aab6d7; }
+.app-sidebar nav a:hover { background: rgba(255,255,255,.08); color: #fff; }
+.app-sidebar nav a[aria-current='page'] { background: linear-gradient(100deg, rgba(99,102,241,.95), rgba(79,70,229,.72)); color: #fff; box-shadow: 0 10px 25px -16px #818cf8; }
+.app-sidebar .brand-mark { background: linear-gradient(145deg, #818cf8, #4f46e5); }
+.app-header { background: rgba(245,247,251,.78); backdrop-filter: blur(18px); }
+.brand-mark { background: linear-gradient(145deg, #4f46e5, #312e81); box-shadow: 0 10px 24px -12px rgba(79,70,229,.9); }
+.page-heading { letter-spacing: -.045em; }
+.fintech-card { border: 1px solid rgba(226,232,240,.9); border-radius: 1.25rem; background: rgba(255,255,255,.94); box-shadow: 0 14px 34px -30px rgba(15,23,42,.55); }
+.fintech-card:hover { box-shadow: 0 18px 38px -28px rgba(15,23,42,.4); }
+.kpi-card { position: relative; overflow: hidden; }
+.kpi-card::after { position: absolute; right: -2rem; bottom: -3rem; width: 8rem; height: 8rem; border-radius: 999px; background: rgba(99,102,241,.06); content: ''; }
+.data-table tbody tr { transition: background-color .18s ease; }
+.responsive-table thead th { letter-spacing: .12em; }
+.status-pill { border: 1px solid currentColor; border-opacity: .12; letter-spacing: .01em; }
+.chart-grid { background-image: linear-gradient(to top, rgba(148,163,184,.14) 1px, transparent 1px); background-size: 100% 25%; }
+.health-dot { box-shadow: 0 0 0 4px rgba(16,185,129,.12); }
+.detail-hero { background: linear-gradient(135deg, #312e81 0%, #4338ca 58%, #6366f1 100%); box-shadow: 0 22px 38px -28px rgba(49,46,129,.75); }
+.status-timeline li:last-child .timeline-dot { box-shadow: 0 0 0 5px rgba(99,102,241,.12); }
+.timeline-line { background: linear-gradient(#c7d2fe, #e2e8f0); }
+.trace-timeline { position: relative; }
+.trace-line { position: absolute; left: 2rem; right: -1rem; top: 1rem; height: 1px; background: linear-gradient(90deg, #a7f3d0, #c7d2fe); }
+.trace-node { box-shadow: 0 0 0 4px rgba(16,185,129,.08); }
+.pipeline-panel { background: radial-gradient(circle at 100% 0%, rgba(99,102,241,.3), transparent 30rem), linear-gradient(120deg, #111b41, #1e1b4b); box-shadow: 0 20px 40px -30px rgba(30,27,75,.85); }
+.pipeline-connector { position: absolute; right: -1rem; width: 1rem; height: 1px; background: rgba(165,180,252,.5); }
+.section-kicker { color: #6366f1; font-size: .66rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+.event-dot { box-shadow: 0 0 0 4px rgba(99,102,241,.12); }
+
+@media (max-width: 640px) {
+  .page-heading { letter-spacing: -.035em; }
+  .fintech-card { border-radius: 1rem; }
+}
+
+@media (max-width: 767px) {
+  .responsive-table { min-width: 0; }
+  .responsive-table thead { display: none; }
+  .responsive-table tbody { display: block; padding: .75rem; }
+  .responsive-table tbody tr { display: block; margin-bottom: .75rem; border: 1px solid #e2e8f0; border-radius: .9rem; background: #fff; padding: .35rem .9rem; }
+  .responsive-table tbody tr:last-child { margin-bottom: 0; }
+  .responsive-table tbody td { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border: 0; padding: .65rem 0; text-align: right; }
+  .responsive-table tbody td::before { color: #94a3b8; content: attr(data-label); font-size: .68rem; font-weight: 700; letter-spacing: .1em; text-align: left; text-transform: uppercase; }
+  .responsive-table tbody td:first-child { display: block; padding-bottom: .8rem; text-align: left; }
+  .responsive-table tbody td:first-child::before { display: block; margin-bottom: .35rem; }
+  .responsive-table tbody td:first-child a { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: #f8fafc; }
