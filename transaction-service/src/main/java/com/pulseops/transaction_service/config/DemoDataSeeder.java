@@ -7,10 +7,12 @@ import com.pulseops.transaction_service.repository.TransactionRepository;
 import com.pulseops.transaction_service.repository.TransactionStatusHistoryRepository;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Profile;
@@ -25,12 +27,14 @@ public class DemoDataSeeder implements CommandLineRunner {
     private static final String[] CURRENCIES = {"USD", "EUR", "GBP", "CAD", "AUD", "INR", "JPY", "CHF"};
     private final TransactionRepository transactions;
     private final TransactionStatusHistoryRepository histories;
+    private final JdbcTemplate jdbcTemplate;
     private final String action;
 
     public DemoDataSeeder(TransactionRepository transactions, TransactionStatusHistoryRepository histories,
-            @Value("${app.demo.seed.action:seed}") String action) {
+            JdbcTemplate jdbcTemplate, @Value("${app.demo.seed.action:seed}") String action) {
         this.transactions = transactions;
         this.histories = histories;
+        this.jdbcTemplate = jdbcTemplate;
         this.action = action;
     }
 
@@ -48,12 +52,19 @@ public class DemoDataSeeder implements CommandLineRunner {
     }
 
     private void seed() {
-        var existing = transactions.findBySource(SOURCE).stream().map(Transaction::getId).collect(java.util.stream.Collectors.toSet());
         var newHistories = new ArrayList<TransactionStatusHistory>();
         var now = Instant.now();
         for (int index = 0; index < 120; index++) {
             var id = deterministicId(index);
-            if (existing.contains(id)) continue;
+            var collision = 0;
+            while (transactions.findById(id).map(existing -> SOURCE.equals(existing.getSource())).orElse(false)) {
+                id = null;
+                break;
+            }
+            while (id != null && transactions.existsById(id)) {
+                id = deterministicId(index, ++collision);
+            }
+            if (id == null) continue;
             var createdAt = now.minusSeconds((long) (119 - index) * 6 * 60 * 60).plusSeconds((index % 5) * 71L);
             var traceId = "demo-trace-" + id;
             var failed = index % 17 == 0;
@@ -63,7 +74,17 @@ public class DemoDataSeeder implements CommandLineRunner {
             transaction.assignTraceId(traceId);
             transaction.applySeedData(createdAt, status, failed ? failureReason(index) : null,
                     failed ? 1 + index % 2 : 0, failed ? createdAt.plusSeconds(45) : null);
-            transactions.save(transaction);
+            jdbcTemplate.update("""
+                    INSERT INTO transaction
+                        (id, amount, currency, description, status, created_at, updated_at,
+                         failure_reason, retry_count, last_failure_at, trace_id, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    transaction.getId(), transaction.getAmount(), transaction.getCurrency(),
+                    transaction.getDescription(), transaction.getStatus().ordinal(),
+                    timestamp(transaction.getCreatedAt()), timestamp(transaction.getUpdatedAt()), transaction.getFailureReason(),
+                    transaction.getRetryCount(), timestamp(transaction.getLastFailureAt()), transaction.getTraceId(),
+                    transaction.getSource());
             newHistories.addAll(history(id, traceId, createdAt, status, failed));
         }
         if (!newHistories.isEmpty()) histories.saveAll(newHistories);
@@ -83,8 +104,18 @@ public class DemoDataSeeder implements CommandLineRunner {
         return result;
     }
 
-    private static UUID deterministicId(int index) { return UUID.nameUUIDFromBytes((NAMESPACE + index).getBytes(StandardCharsets.UTF_8)); }
-    private static BigDecimal amount(int index) { return BigDecimal.valueOf(25 + ((index * 791) % 245000) / 100.0).setScale(2); }
+    private static UUID deterministicId(int index) {
+        return deterministicId(index, 0);
+    }
+
+    private static UUID deterministicId(int index, int collision) {
+        var suffix = collision == 0 ? "" : "-" + collision;
+        return UUID.nameUUIDFromBytes((NAMESPACE + index + suffix).getBytes(StandardCharsets.UTF_8));
+    }
+    private static Timestamp timestamp(Instant value) { return value == null ? null : Timestamp.from(value); }
+    private static BigDecimal amount(int index) {
+        return BigDecimal.valueOf(2500L + ((long) index * 791) % 245000L).movePointLeft(2);
+    }
     private static String description(int index) { return "Demo settlement " + String.format("%03d", index + 1); }
     private static String failureReason(int index) { return index % 2 == 0 ? "Demo bank validation failure" : "Demo downstream timeout"; }
     private static String failureReason(UUID id) { return id.hashCode() % 2 == 0 ? "Demo bank validation failure" : "Demo downstream timeout"; }

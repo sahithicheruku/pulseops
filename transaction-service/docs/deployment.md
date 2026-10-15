@@ -16,6 +16,8 @@ POSTGRES_DB=pulseops
 DB_USERNAME=replace-me
 DB_PASSWORD=replace-me
 JWT_SECRET=replace-with-a-random-secret-at-least-32-characters
+DEMO_USERNAME=replace-with-demo-username
+DEMO_PASSWORD=replace-with-demo-password
 ```
 
 Optional rate-limit settings default to 10 requests per 60 seconds:

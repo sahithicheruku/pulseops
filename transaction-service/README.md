@@ -1,79 +1,111 @@
 # PulseOps
 
-PulseOps is a full-stack transaction operations platform: a Spring Boot API, event-driven transaction processing, and a responsive React operations dashboard.
+PulseOps is an event-driven transaction processing platform with a React operations console for creating, processing, and investigating financial transactions. It combines a Spring Boot API, PostgreSQL as the durable system of record, Kafka for asynchronous processing, and Redis for idempotency and rate-limit controls.
+
+The project is designed around an operator’s questions: What happened to this transaction? Which processing stage is it in? Did it fail, retry, or reach the dead-letter topic? What is the current system activity over a selected time range?
+
+## Overview
+
+A transaction starts as an authenticated REST request. The API validates the amount and currency, applies the creation rate limit, checks the idempotency key in Redis, writes the transaction to PostgreSQL with status `RECEIVED`, and publishes a JSON `TransactionCreatedEvent` to Kafka.
+
+The consumer processes that event independently from the HTTP request. It records the lifecycle in PostgreSQL status history as the transaction moves through `VALIDATING`, `PROCESSING`, and either `COMPLETED` or `FAILED`. The frontend reads this persisted data through the API and can subscribe to status changes with Server-Sent Events. A page refresh therefore reconstructs the same state from PostgreSQL rather than relying on browser memory.
 
 ## Architecture
 
-```text
-React + Vite + Tailwind
-          │  /api via Nginx
-          ▼
-Spring Boot transaction-service
-     │             │              │
-     ▼             ▼              ▼
-PostgreSQL      Kafka           Redis
- persistence    events          idempotency + rate limiting
+```mermaid
+flowchart LR
+    Browser[React + Vite\nPulseOps dashboard] -->|JWT REST requests\nSSE status stream| API[Spring Boot API]
+
+    API -->|transactions\nstatus history\nanalytics| DB[(PostgreSQL)]
+    API -->|idempotency keys\nrate-limit counters| Redis[(Redis)]
+    API -->|TransactionCreatedEvent JSON| Kafka[(Kafka\ntransaction.created)]
+
+    Kafka --> Consumer[Transaction event consumer]
+    Consumer -->|VALIDATING / PROCESSING\nCOMPLETED / FAILED| DB
+    Consumer -->|retry topics| Retry[Kafka retry topics]
+    Retry --> Consumer
+    Consumer -->|retries exhausted| DLT[Dead-letter topic]
+    DLT --> DLTHandler[DLT handler]
+    DLTHandler -->|failure metadata\nstatus history| DB
+
+    API --> Health[Actuator health\nmetrics / Prometheus]
 ```
 
-Creating a transaction persists it in PostgreSQL with status `RECEIVED`, then publishes a JSON event to Kafka. The consumer records `VALIDATING`, `PROCESSING`, and `COMPLETED`; processing failures are logged and rethrown rather than persisted as a `FAILED` transition. Redis provides idempotency and rate limiting. The detail page receives live status changes through Server-Sent Events.
+In the development Compose stack, the browser uses the frontend at port `3001`. Nginx proxies `/api` and SSE requests to the application at port `8080`. The application connects to PostgreSQL, Kafka, and Redis by their Compose service names. The production Compose configuration adds Caddy for HTTPS and keeps the backend services private.
 
-## Features
+## Transaction flow
 
-- JWT-protected transaction APIs
-- Create, retrieve, paginate, search, and filter transactions
-- Transaction status history and live SSE updates
-- Kafka `transaction.created` JSON events and consumer processing
-- Redis-backed `Idempotency-Key` support and creation rate limiting
-- PostgreSQL persistence with Flyway support
-- Actuator health, metrics, and Prometheus endpoints
-- Responsive React dashboard with charts, loading/retry/empty states, mobile navigation, error boundary, and 404 page
-- Docker Compose stack and GitHub Actions CI
+1. The client signs in through `POST /api/v1/auth/login`. The backend compares the request with credentials supplied through environment variables and returns an eight-hour JWT.
+2. The client sends `POST /api/v1/transactions` with a bearer token, an `Idempotency-Key`, and an optional `X-Correlation-ID`.
+3. Bean validation rejects non-positive amounts or currencies that are not exactly three letters. Redis prevents the same idempotency key from creating a duplicate and applies the configured creation limit.
+4. The transaction is persisted in PostgreSQL with status `RECEIVED`. The response returns the transaction record.
+5. The Kafka producer publishes a JSON event to `transaction.created`. Kafka is used here because the HTTP request should not have to wait for every downstream processing step. It also provides a durable event boundary and allows retries to be handled independently of the original request.
+6. The consumer receives the event, records `VALIDATING`, applies the domain rules, records `PROCESSING`, and then records `COMPLETED` when processing succeeds.
+7. The frontend can read the status history or subscribe to `/{id}/status/stream` for live changes.
 
-## Stack
+## Failure, retry, and dead-letter handling
 
-**Backend:** Java 21, Spring Boot 4, Spring MVC, Spring Security JWT resource server, Spring Data JPA/Redis, Spring Kafka, Validation, Actuator, PostgreSQL 16, Apache Kafka 3.9, Redis 7, Flyway, Maven Wrapper.
+Failures are controlled by validation and business rules; the system does not generate random failures. A failed transaction remains in PostgreSQL with status `FAILED`, a failure reason, retry count, and last failure timestamp. The failure is also represented in the status-history table.
 
-**Frontend:** React, TypeScript, Vite, Tailwind CSS, React Router, and Nginx for the production container.
+Kafka processing exceptions are handled through Spring Kafka retry topics with backoff. If the event succeeds on a retry, the normal processing history continues. If retries are exhausted, the event reaches the existing dead-letter topic. The DLT handler records the dead-letter reason and marks the transaction failed. An operator can call `POST /api/v1/transactions/{id}/retry` for an eligible failed transaction. That action reuses the existing transaction and appends new status history instead of creating a duplicate.
+
+## Idempotency, rate limiting, and Redis
+
+Redis is used for fast operational coordination, not as the source of truth for transactions. An idempotency key reserves a create request and stores the resulting transaction response so a client retry does not insert a second row. This is useful when a network timeout leaves the client unsure whether the original request reached the API.
+
+The default transaction-creation limit is 10 requests per 60 seconds. The values are configurable with `RATE_LIMIT_TRANSACTIONS` and `RATE_LIMIT_WINDOW_SECONDS`. Rate limiting is applied to creation requests and returns HTTP 429 when the limit is exceeded. The load-test profile can change this behavior only for the opt-in test; the default configuration remains unchanged.
+
+## Persistence, tracing, and analytics
+
+PostgreSQL stores the transaction entity, every status transition, failure metadata, retry metadata, trace ID, and timestamps. Flyway migrations under `src/main/resources/db/migration` manage schema and query indexes. Production uses Hibernate schema validation rather than `ddl-auto=update`.
+
+A correlation ID is accepted from `X-Correlation-ID` or generated by the backend. The same identifier is carried through the REST request, transaction row, Kafka event, consumer logs, and status-history rows. Transaction detail displays the trace ID and a compact processing trace with real stage timestamps and durations.
+
+Dashboard and Analytics values are computed from PostgreSQL records. The analytics API supports `24h`, `7d`, and `30d` ranges and returns transaction volume over time, status distribution, success/failure counts, recent failures, volume by currency, throughput, average latency, and p95 processing latency. No frontend-only counters or sample metrics are used.
+
+## Frontend
+
+The React application provides:
+
+- Dashboard KPIs, activity charts, processing pipeline, service health, and recent transactions.
+- Transactions table with search, status filters, pagination, timestamps, and failure indicators.
+- Create Transaction form with validation, a searchable currency selector, loading state, and API errors.
+- Transaction detail operations trace with status timeline, failure reason, retry action, Kafka-related processing stages, trace ID, and total processing time.
+- Analytics view with real API data and selectable time ranges.
+- Responsive navigation and layouts for desktop, tablet, and mobile.
+- Loading skeletons, empty states, retry controls, a global error boundary, and a not-found page.
+
+## Technology
+
+**Backend:** Java 21, Spring Boot 4, Spring MVC, Spring Security JWT, Spring Data JPA, Spring Data Redis, Spring Kafka, Bean Validation, Actuator, Flyway, and Maven Wrapper.
+
+**Infrastructure:** PostgreSQL 16, Apache Kafka 3.9, Redis 7, Docker Compose, multi-stage Docker builds, Nginx, and Caddy for production HTTPS routing.
+
+**Frontend:** React, TypeScript, Vite, Tailwind CSS, React Router, and Nginx.
 
 ## Local setup
 
-Requirements: Java 21, Docker Desktop with Compose, and Node.js 22/npm for frontend-only development.
+The simplest local start uses Docker Compose:
 
 ```bash
 cp .env.example .env
-docker compose up --build
+docker compose up --build -d
 ```
 
-For a portfolio-ready local environment with 120 persisted demo transactions, use the opt-in demo Compose override:
+Open [http://localhost:3001](http://localhost:3001). Set `DEMO_USERNAME` and `DEMO_PASSWORD` in `.env` before signing in. The services use these local addresses:
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
-```
-
-Open http://localhost:3001 and sign in with `DEMO_USERNAME` / `DEMO_PASSWORD` from `.env` (the demo override defaults to `demo` / `demo-password` when unset). Normal `docker compose up` does not seed data, and `docker-compose.production.yml` never enables the demo profile.
-
-To safely replace only demo records while preserving user-created transactions:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.demo.yml run --rm \
-  -e SPRING_MAIN_WEB_APPLICATION_TYPE=none \
-  -e DEMO_SEED_ACTION=reseed app
-```
-
-The demo seeder is deterministic, idempotent, and labels seeded rows with `source=DEMO_SEED`.
-
-| Service | URL |
+| Service | Address |
 |---|---|
-| Frontend | http://localhost:3001 |
-| Backend | http://localhost:8080 |
-| Health | http://localhost:8080/actuator/health |
-| PostgreSQL | localhost:5434 |
-| Kafka | localhost:9092 |
-| Redis | localhost:6379 |
+| Frontend | `http://localhost:3001` |
+| Backend | `http://localhost:8080` |
+| Health | `http://localhost:8080/actuator/health` |
+| PostgreSQL | `localhost:5434` |
+| Kafka | `localhost:9092` |
+| Redis | `localhost:6379` |
 
-Compose defaults are local-development values. Replace `DB_PASSWORD` and `JWT_SECRET` for shared environments. `.env` files are ignored by Git; only example templates are committed.
+The development database uses the named `postgres_data` volume. `docker compose down` stops the containers without deleting that volume, so existing transactions remain available. Removing the volume is a separate destructive action and should only be done when resetting local data is intentional.
 
-To run the frontend separately:
+For frontend-only work:
 
 ```bash
 cd frontend
@@ -81,78 +113,78 @@ npm ci
 npm run dev
 ```
 
-Vite proxies `/api` to `http://localhost:8080` by default. Set `VITE_API_PROXY_TARGET` in `frontend/.env` to override that development target.
+The Vite proxy targets `http://localhost:8080` unless `VITE_API_PROXY_TARGET` is set in `frontend/.env`.
 
-## API flow
+## Demo mode
 
-All `/api/v1/**` routes require a JWT bearer token. This application does not issue tokens; use a token from the configured identity provider or a suitable development token. `/actuator/health` is public.
+Demo data is opt-in. It is not enabled by normal development Compose and is not enabled by the production Compose configuration.
 
-Available transaction endpoints:
+Start the complete demo stack with:
 
-| Method | Endpoint | Purpose |
+```bash
+docker compose -f docker-compose.yml -f docker-compose.demo.yml up --build -d
+```
+
+This enables the `demo` Spring profile and seeds 120 deterministic records across the last 30 days. The records include USD, EUR, GBP, CAD, AUD, INR, JPY, and CHF, with mostly completed examples plus processing, failed, status-history, timestamp, trace, and retry examples supported by the domain model.
+
+The demo login uses the `DEMO_USERNAME` and `DEMO_PASSWORD` environment variables. Seeded rows are tagged `source=DEMO_SEED` and use deterministic IDs, so restarting the demo stack does not duplicate them. User-created rows are not touched.
+
+To replace only seeded records:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.demo.yml run --rm \
+  -e SPRING_MAIN_WEB_APPLICATION_TYPE=none \
+  -e DEMO_SEED_ACTION=reseed app
+```
+
+This command is safe for user data because it deletes and recreates only rows tagged `DEMO_SEED`. Do not activate the demo profile in production.
+
+## API reference
+
+All `/api/v1/**` endpoints require a bearer token except login.
+
+| Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/v1/transactions` | Create a transaction |
-| `GET` | `/api/v1/transactions` | List, paginate, and filter transactions |
-| `GET` | `/api/v1/transactions/{id}` | Read one transaction |
-| `GET` | `/api/v1/transactions/{id}/status` | Read status history |
-| `GET` | `/api/v1/transactions/{id}/status/stream` | Stream status changes with SSE |
+| POST | `/api/v1/auth/login` | Issue a JWT from configured credentials. |
+| GET | `/api/v1/dashboard/metrics` | Return persisted dashboard metrics. |
+| GET | `/api/v1/analytics?range=24h\|7d\|30d` | Return PostgreSQL-backed analytics. |
+| POST | `/api/v1/transactions` | Create a transaction; requires `Idempotency-Key`. |
+| GET | `/api/v1/transactions` | Paginate and filter transactions by status. |
+| GET | `/api/v1/transactions/{id}` | Return transaction detail. |
+| GET | `/api/v1/transactions/{id}/status` | Return persisted status history. |
+| POST | `/api/v1/transactions/{id}/retry` | Retry an eligible failed transaction. |
+| GET | `/api/v1/transactions/{id}/status/stream` | Stream status changes over SSE. |
+| GET | `/actuator/health` | Public health endpoint. |
+| GET | `/actuator/metrics` | Authenticated Actuator metrics. |
+| GET | `/actuator/prometheus` | Authenticated Prometheus output. |
 
-### Create
+Example login and create request:
 
 ```bash
+TOKEN=$(curl -sS -X POST http://localhost:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"demo","password":"demo-password"}' \
+  | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+
 curl -X POST http://localhost:8080/api/v1/transactions \
-  -H "Authorization: Bearer $JWT" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: order-123" \
-  -d '{"amount":42.50,"currency":"USD","description":"Example transaction"}'
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: portfolio-demo-001' \
+  -H 'X-Correlation-ID: portfolio-trace-001' \
+  -d '{"amount":42.50,"currency":"USD","description":"Portfolio demo"}'
 ```
 
-The amount must be positive and currency must be a three-letter code. Reusing an idempotency key prevents duplicate creation. Excess creation requests return `429 Too Many Requests`.
+## Testing and validation
 
-### Read and monitor
-
-```bash
-curl "http://localhost:8080/api/v1/transactions?page=0&size=20&status=COMPLETED" -H "Authorization: Bearer $JWT"
-curl http://localhost:8080/api/v1/transactions/$ID -H "Authorization: Bearer $JWT"
-curl http://localhost:8080/api/v1/transactions/$ID/status -H "Authorization: Bearer $JWT"
-curl -N http://localhost:8080/api/v1/transactions/$ID/status/stream -H "Authorization: Bearer $JWT"
-```
-
-Supported statuses: `RECEIVED`, `VALIDATING`, `PROCESSING`, `COMPLETED`, and `FAILED`.
-
-## Kafka
-
-The producer publishes `TransactionCreatedEvent` JSON messages to `transaction.created`. Events contain transaction ID, amount, currency, status, and creation timestamp. The `transaction-service` consumer logs received events and updates transaction status through the processing lifecycle. Docker clients use `kafka:9092`; host clients use `localhost:9092`.
-
-## Redis
-
-Redis stores idempotency reservations/results and rate-limit counters. The default transaction-creation limit is 10 requests per 60 seconds. Configure it with `RATE_LIMIT_TRANSACTIONS` and `RATE_LIMIT_WINDOW_SECONDS`.
-
-## Security and configuration
-
-- `/api/v1/**` is authenticated with JWT bearer tokens.
-- `/actuator/health` is public.
-- JWT, database, Kafka, Redis, rate-limit, and server settings are environment-configurable.
-- Use `JWT_SECRET`, `DB_USERNAME`, and `DB_PASSWORD` for credentials.
-- Never commit `.env` files, private keys, access tokens, or production credentials.
-
-See [.env.example](.env.example) and [frontend/.env.example](frontend/.env.example).
-
-## Testing and builds
-
-Backend tests, Testcontainers integration tests, and packaging:
+Backend verification is run with:
 
 ```bash
 ./mvnw clean verify
 ```
 
-This covers unit tests, MockMvc controller tests, and PostgreSQL/Kafka/Redis integration tests. The load test is opt-in and uses an isolated Testcontainers-backed Spring context:
+The Maven suite contains 32 test cases covering service logic, MockMvc controllers, authentication, Kafka producer/consumer behavior, analytics, and Testcontainers integration. The PostgreSQL/Kafka/Redis integration tests require a working Docker environment with enough resources for all three containers. Testcontainers Kafka startup is environment-dependent, so integration results should be verified on the target machine rather than inferred from unit-test results.
 
-```bash
-./mvnw -DloadTest=true -DloadTest.requests=100 -DloadTest.concurrency=10 test
-```
-
-Frontend type-check/lint and production build:
+Frontend validation is:
 
 ```bash
 cd frontend
@@ -161,28 +193,44 @@ npm run lint
 npm run build
 ```
 
-Database query indexes are managed by the Flyway migration in `src/main/resources/db/migration`.
-
-## Docker and CI
-
-The root [Dockerfile](Dockerfile) builds the backend JAR in a multi-stage image. [frontend/Dockerfile](frontend/Dockerfile) builds the React bundle and serves it with Nginx, including `/api` proxying, SSE support, and SPA fallback. `docker-compose.yml` is the development stack. Production uses [docker-compose.production.yml](docker-compose.production.yml) with Caddy HTTPS on ports 80/443; the backend, PostgreSQL, Kafka, Redis, and frontend remain private. See [docs/deployment.md](docs/deployment.md).
+The latest frontend lint and production build completed successfully. The opt-in load test records measured results and this README intentionally makes no performance claim:
 
 ```bash
-docker compose down
+./mvnw -DloadTest=true -DloadTest.requests=100 -DloadTest.concurrency=10 test
 ```
 
-### Optional demo data
+## Project structure
 
-The development-only `demo` profile can seed 120 deterministic, persisted transactions across the last 30 days:
-
-```bash
-./mvnw spring-boot:run -Dspring-boot.run.profiles=demo
+```text
+src/main/java/.../controller    REST, auth, dashboard, and analytics controllers
+src/main/java/.../service       transaction, analytics, rate-limit, and SSE services
+src/main/java/.../event         Kafka event model, producer, consumer, retry, and DLT handling
+src/main/java/.../domain        transaction and status-history entities
+src/main/java/.../repository    JPA repositories and analytics queries
+src/main/resources/db/migration Flyway schema and index migrations
+frontend/src                     React routes, authentication, pages, and UI
+docker-compose.yml                normal development stack
+docker-compose.demo.yml           opt-in demo override
+docker-compose.production.yml     production stack
+Caddyfile                          HTTPS reverse-proxy configuration
+docs/                              API, architecture, and deployment documentation
+scripts/                           deployment helper scripts
 ```
 
-Seeding is idempotent and marks records with `source=DEMO_SEED`. It never runs in the default or production profiles. To replace only demo records while preserving user-created transactions:
+## Screenshots
 
-```bash
-./mvnw spring-boot:run -Dspring-boot.run.profiles=demo -Dspring-boot.run.arguments="--app.demo.seed.action=reseed"
-```
+Screenshot assets will be added at these paths:
 
-GitHub Actions in `.github/workflows/ci.yml` runs backend Maven verification and frontend npm lint/build on pushes and pull requests. It does not deploy or publish artifacts.
+| Dashboard | Transactions | Analytics | Transaction detail |
+|---|---|---|
+| `docs/screenshots/dashboard.png` | `docs/screenshots/transactions.png` | `docs/screenshots/analytics.png` | `docs/screenshots/transaction-detail.png` |
+
+## Design decisions
+
+- **PostgreSQL is authoritative.** A refresh rebuilds transaction state, history, and analytics from durable records.
+- **Kafka is asynchronous.** The API can acknowledge a persisted transaction without coupling the request to every processing step, while retry topics provide a separate failure path.
+- **Redis is operational state.** It handles fast idempotency and rate-limit coordination; it does not replace PostgreSQL transaction storage.
+- **JWT login is intentionally small.** Credentials are environment-provided and there is no signup flow or user database.
+- **Demo data is namespaced.** Deterministic IDs and the `DEMO_SEED` source marker make reseeding safe around user-created records.
+- **SSE complements persistence.** It improves live detail updates, while PostgreSQL remains the source used after reconnects and refreshes.
+- **Flyway owns production schema changes.** Local development allows Hibernate updates for convenience; production validates the migration-managed schema.
