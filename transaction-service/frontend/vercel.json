@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://pulseops-u166.onrender.com/api/:path*"
+    },
+    {
+      "source": "/actuator/:path*",
+      "destination": "https://pulseops-u166.onrender.com/actuator/:path*"
+    }
+  ]
+}
