@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.Authentication;
 
 @RestController
 @RequestMapping("/api/v1/analytics")
@@ -15,7 +16,8 @@ public class AnalyticsController {
     public AnalyticsController(AnalyticsService service) { this.service = service; }
 
     @GetMapping
-    public AnalyticsResponse analytics(@RequestParam(defaultValue = "7d") String range) {
-        return service.getAnalytics(range);
+    public AnalyticsResponse analytics(@RequestParam(defaultValue = "7d") String range,
+            Authentication authentication) {
+        return service.getAnalytics(range, authentication.getName());
     }
 }

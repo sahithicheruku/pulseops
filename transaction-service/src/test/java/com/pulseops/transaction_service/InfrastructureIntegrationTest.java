@@ -1,6 +1,8 @@
 package com.pulseops.transaction_service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.pulseops.transaction_service.event.TransactionCreatedEvent;
 import com.pulseops.transaction_service.service.AnalyticsService;
@@ -15,6 +17,7 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -22,6 +25,10 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MvcResult;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -35,6 +42,7 @@ import org.testcontainers.utility.DockerImageName;
         "app.demo.username=test-user",
         "app.demo.password=test-password"
 })
+@AutoConfigureMockMvc
 class InfrastructureIntegrationTest {
     @Container
     static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -72,6 +80,9 @@ class InfrastructureIntegrationTest {
 
     @Autowired
     AnalyticsService analyticsService;
+
+    @Autowired
+    MockMvc mockMvc;
 
     @Test
     void connectsToPostgresRedisAndKafka() {
@@ -117,4 +128,59 @@ class InfrastructureIntegrationTest {
             assertThat(records).anyMatch(record -> record.key().equals(event.transactionId().toString()));
         }
     }
+
+    @Test
+    void registeredUsersOnlySeeTheirOwnDashboardAnalyticsTransactionsAndStreams() throws Exception {
+        String userAToken = signup("User A", "user-a@integration.test");
+        String userBToken = signup("User B", "user-b@integration.test");
+        UUID userATransaction = insertTransaction("user-a@integration.test", "USD", 3);
+        insertTransaction("user-b@integration.test", "EUR", 3);
+
+        mockMvc.perform(get("/api/v1/transactions").header("Authorization", bearer(userAToken)))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains(userATransaction.toString()).doesNotContain("EUR"));
+
+        mockMvc.perform(get("/api/v1/dashboard/metrics").header("Authorization", bearer(userAToken)))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"total\":1"));
+        mockMvc.perform(get("/api/v1/dashboard/metrics").header("Authorization", bearer(userBToken)))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"total\":1"));
+
+        mockMvc.perform(get("/api/v1/analytics?range=24h").header("Authorization", bearer(userAToken)))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("\"USD\":1").doesNotContain("\"EUR\":1"));
+
+        mockMvc.perform(get("/api/v1/transactions/{id}/status/stream", userATransaction)
+                        .header("Authorization", bearer(userBToken)))
+                .andExpect(status().isNotFound());
+    }
+
+    private String signup(String name, String email) throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"" + name + "\",\"email\":\"" + email
+                                + "\",\"password\":\"strong-password\",\"confirmPassword\":\"strong-password\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String body = result.getResponse().getContentAsString();
+        return body.replaceFirst(".*\\\"token\\\":\\\"([^\\\"]+)\\\".*", "$1");
+    }
+
+    private UUID insertTransaction(String owner, String currency, int status) {
+        UUID id = UUID.randomUUID();
+        Timestamp now = Timestamp.from(Instant.now());
+        jdbcTemplate.update("""
+                INSERT INTO transaction (id, amount, currency, description, status, created_at, updated_at,
+                    owner_key, failure_reason, retry_count, last_failure_at, trace_id, source)
+                VALUES (?, 12.50, ?, 'Isolation integration', ?, ?, ?, ?, NULL, 0, NULL, ?, 'USER')
+                """, id, currency, status, now, now, owner, "isolation-trace-" + id);
+        return id;
+    }
+
+    private String bearer(String token) { return "Bearer " + token; }
 }

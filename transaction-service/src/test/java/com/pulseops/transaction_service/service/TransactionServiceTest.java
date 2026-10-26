@@ -102,7 +102,7 @@ class TransactionServiceTest {
         var id = UUID.randomUUID();
         var transaction = new Transaction(id, new BigDecimal("12.50"), "USD", "Coffee");
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.setIfAbsent(eq("transaction:idempotency:coffee-1"), anyString())).thenReturn(true);
+        when(valueOperations.setIfAbsent(eq("transaction:idempotency:demo:coffee-1"), anyString())).thenReturn(true);
         when(repository.save(any(Transaction.class))).thenReturn(transaction);
 
         assertEquals(transaction, service.create(
@@ -116,7 +116,7 @@ class TransactionServiceTest {
     @Test
     void createPersistsAndPublishesRequestedTraceId() {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.setIfAbsent(eq("transaction:idempotency:trace-1"), anyString())).thenReturn(true);
+        when(valueOperations.setIfAbsent(eq("transaction:idempotency:demo:trace-1"), anyString())).thenReturn(true);
         when(repository.save(any(Transaction.class))).thenAnswer(invocation -> {
             var input = invocation.getArgument(0, Transaction.class);
             var saved = new Transaction(UUID.randomUUID(), input.getAmount(), input.getCurrency(), input.getDescription());
@@ -137,8 +137,8 @@ class TransactionServiceTest {
         var id = UUID.randomUUID();
         var transaction = new Transaction(id, new BigDecimal("12.50"), "USD", "Coffee");
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.setIfAbsent(eq("transaction:idempotency:coffee-1"), anyString())).thenReturn(false);
-        when(valueOperations.get("transaction:idempotency:coffee-1")).thenReturn(id.toString());
+        when(valueOperations.setIfAbsent(eq("transaction:idempotency:demo:coffee-1"), anyString())).thenReturn(false);
+        when(valueOperations.get("transaction:idempotency:demo:coffee-1")).thenReturn(id.toString());
         when(repository.findById(id)).thenReturn(java.util.Optional.of(transaction));
 
         assertEquals(transaction, service.create(

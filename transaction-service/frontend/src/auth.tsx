@@ -1,7 +1,7 @@
 import { createContext, useContext, useState } from 'react'
 import type { ReactNode } from 'react'
 
-type AuthContextValue = { token: string | null; signIn: (username: string, password: string) => Promise<void>; signOut: () => void }
+type AuthContextValue = { token: string | null; signIn: (username: string, password: string) => Promise<void>; signUp: (name: string, email: string, password: string, confirmPassword: string) => Promise<void>; signOut: () => void }
 const AuthContext = createContext<AuthContextValue | null>(null)
 const storageKey = 'pulseops.jwt'
 
@@ -19,8 +19,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw error
     }
   }
+  const signUp = async (name: string, email: string, password: string, confirmPassword: string) => {
+    const response = await fetch('/api/v1/auth/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, email, password, confirmPassword }) })
+    if (!response.ok) {
+      const body = await response.json().catch(() => null) as { message?: string } | null
+      throw new Error(body?.message || (response.status === 409 ? 'That email is already registered.' : 'Could not create account.'))
+    }
+    const result = await response.json() as { token: string }
+    sessionStorage.setItem(storageKey, result.token)
+    setToken(result.token)
+  }
   const signOut = () => { sessionStorage.removeItem(storageKey); setToken(null) }
-  return <AuthContext.Provider value={{ token, signIn, signOut }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ token, signIn, signUp, signOut }}>{children}</AuthContext.Provider>
 }
 
 export function useAuth() {

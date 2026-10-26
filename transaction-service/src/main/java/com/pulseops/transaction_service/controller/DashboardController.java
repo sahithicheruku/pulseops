@@ -5,6 +5,7 @@ import com.pulseops.transaction_service.service.DashboardMetricsService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.Authentication;
 
 @RestController
 @RequestMapping("/api/v1/dashboard")
@@ -16,7 +17,7 @@ public class DashboardController {
     }
 
     @GetMapping("/metrics")
-    public DashboardMetrics metrics() {
-        return service.getMetrics();
+    public DashboardMetrics metrics(Authentication authentication) {
+        return service.getMetrics(authentication.getName());
     }
 }

@@ -53,7 +53,7 @@ class TransactionControllerIntegrationTest {
     void postCreatesTransaction() throws Exception {
         var transaction = new Transaction(new BigDecimal("12.50"), "USD", "Coffee");
         when(rateLimiter.allow(anyString())).thenReturn(true);
-        when(service.create(any(), anyString(), org.mockito.ArgumentMatchers.any())).thenReturn(transaction);
+        when(service.create(any(), anyString(), org.mockito.ArgumentMatchers.any(), anyString())).thenReturn(transaction);
 
         mockMvc.perform(post("/api/v1/transactions").with(jwt())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -78,7 +78,7 @@ class TransactionControllerIntegrationTest {
 
     @Test
     void getReturnsTransactions() throws Exception {
-        when(service.findAll(any(), org.mockito.ArgumentMatchers.isNull())).thenReturn(
+        when(service.findAll(any(), org.mockito.ArgumentMatchers.isNull(), anyString())).thenReturn(
                 new PageImpl<>(List.of(new Transaction(new BigDecimal("5.00"), "USD", "Lunch"))));
 
         mockMvc.perform(get("/api/v1/transactions").with(jwt()))
@@ -89,7 +89,7 @@ class TransactionControllerIntegrationTest {
 
     @Test
     void getFiltersTransactionsByStatus() throws Exception {
-        when(service.findAll(any(), org.mockito.ArgumentMatchers.eq(TransactionStatus.COMPLETED))).thenReturn(
+        when(service.findAll(any(), org.mockito.ArgumentMatchers.eq(TransactionStatus.COMPLETED), anyString())).thenReturn(
                 new PageImpl<>(List.of(new Transaction(new BigDecimal("8.00"), "USD", "Paid"))));
 
         mockMvc.perform(get("/api/v1/transactions?status=COMPLETED&page=1&size=5").with(jwt()))
@@ -130,7 +130,7 @@ class TransactionControllerIntegrationTest {
     @Test
     void getReturnsTransactionById() throws Exception {
         var id = UUID.randomUUID();
-        when(service.findById(id)).thenReturn(new Transaction(new BigDecimal("7.00"), "EUR", "Train"));
+        when(service.findById(id, "user")).thenReturn(new Transaction(new BigDecimal("7.00"), "EUR", "Train"));
 
         mockMvc.perform(get("/api/v1/transactions/{id}", id).with(jwt()))
                 .andExpect(status().isOk())
@@ -141,7 +141,7 @@ class TransactionControllerIntegrationTest {
     @Test
     void getReturnsStatusHistory() throws Exception {
         var id = UUID.randomUUID();
-        when(service.getStatusHistory(id)).thenReturn(
+        when(service.getStatusHistory(id, "user")).thenReturn(
                 List.of(new TransactionStatusHistory(id, TransactionStatus.RECEIVED)));
 
         mockMvc.perform(get("/api/v1/transactions/{id}/status", id).with(jwt()))
@@ -153,7 +153,7 @@ class TransactionControllerIntegrationTest {
     @Test
     void retryReturnsConflictWhenTransactionIsNotEligible() throws Exception {
         var id = UUID.randomUUID();
-        when(service.retry(id)).thenThrow(new IllegalStateException("Transaction is not eligible for retry"));
+        when(service.retry(id, "user")).thenThrow(new IllegalStateException("Transaction is not eligible for retry"));
 
         mockMvc.perform(post("/api/v1/transactions/{id}/retry", id).with(jwt()))
                 .andExpect(status().isConflict())

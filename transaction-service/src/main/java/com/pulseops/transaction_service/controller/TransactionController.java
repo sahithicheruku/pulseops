@@ -22,6 +22,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.core.Authentication;
 
 @RestController
 @RequestMapping("/api/v1/transactions")
@@ -40,8 +42,9 @@ public class TransactionController {
     public Page<Transaction> findAll(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) TransactionStatus status) {
-        return service.findAll(PageRequest.of(page, size), status);
+            @RequestParam(required = false) TransactionStatus status,
+            Authentication authentication) {
+        return service.findAll(PageRequest.of(page, size), status, authentication.getName());
     }
 
     @PostMapping
@@ -49,33 +52,34 @@ public class TransactionController {
             @Valid @RequestBody CreateTransactionRequest request,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestHeader(value = "X-Correlation-ID", required = false) String correlationId,
-            HttpServletRequest httpRequest) {
+            HttpServletRequest httpRequest, Authentication authentication) {
         if (!rateLimiter.allow(httpRequest.getRemoteAddr())) {
             throw new RateLimitExceededException();
         }
-        var transaction = service.create(request, idempotencyKey, correlationId);
+        var transaction = service.create(request, idempotencyKey, correlationId, authentication.getName());
         return ResponseEntity.status(201).body(transaction);
     }
 
     @GetMapping("/{id}")
-    public Transaction findById(@PathVariable UUID id) {
-        return service.findById(id);
+    public Transaction findById(@PathVariable UUID id, Authentication authentication) {
+        return service.findById(id, authentication.getName());
     }
 
     @GetMapping("/{id}/status")
     public List<com.pulseops.transaction_service.domain.TransactionStatusHistory> getStatusHistory(
-            @PathVariable UUID id) {
-        return service.getStatusHistory(id);
+            @PathVariable UUID id, Authentication authentication) {
+        return service.getStatusHistory(id, authentication.getName());
     }
 
     @PostMapping("/{id}/retry")
-    public Transaction retry(@PathVariable UUID id) {
-        return service.retry(id);
+    public Transaction retry(@PathVariable UUID id, Authentication authentication) {
+        return service.retry(id, authentication.getName());
     }
 
     @GetMapping(value = "/{id}/status/stream", produces = "text/event-stream")
-    public org.springframework.web.servlet.mvc.method.annotation.SseEmitter streamStatus(@PathVariable UUID id) {
-        service.findById(id);
+    public org.springframework.web.servlet.mvc.method.annotation.SseEmitter streamStatus(@PathVariable UUID id,
+            Authentication authentication) {
+        service.findById(id, authentication.getName());
         return statusStream.subscribe(id);
     }
 }

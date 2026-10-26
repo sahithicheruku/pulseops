@@ -38,6 +38,8 @@ public class Transaction {
     private String traceId;
     @Column(nullable = false, length = 20)
     private String source = "USER";
+    @Column(nullable = false, length = 320)
+    private String ownerKey = "demo";
 
     public Transaction() {
     }
@@ -67,6 +69,9 @@ public class Transaction {
     public Instant getLastFailureAt() { return lastFailureAt; }
     public String getTraceId() { return traceId; }
     public String getSource() { return source; }
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public String getOwnerKey() { return ownerKey; }
+    public void assignOwner(String ownerKey) { this.ownerKey = ownerKey; }
 
 
     public void updateStatus(TransactionStatus status) { this.status = status; }

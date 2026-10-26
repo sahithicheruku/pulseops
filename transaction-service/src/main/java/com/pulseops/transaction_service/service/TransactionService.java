@@ -42,14 +42,20 @@ public class TransactionService {
     public Page<Transaction> findAll(Pageable pageable, TransactionStatus status) {
         return status == null ? repository.findAll(pageable) : repository.findByStatus(status, pageable);
     }
+    public Page<Transaction> findAll(Pageable pageable, TransactionStatus status, String ownerKey) {
+        return status == null ? repository.findByOwnerKey(ownerKey, pageable) : repository.findByOwnerKeyAndStatus(ownerKey, status, pageable);
+    }
 
     public Transaction create(CreateTransactionRequest request, String idempotencyKey) {
         return create(request, idempotencyKey, UUID.randomUUID().toString());
     }
 
     public Transaction create(CreateTransactionRequest request, String idempotencyKey, String requestedTraceId) {
+        return create(request, idempotencyKey, requestedTraceId, "demo");
+    }
+    public Transaction create(CreateTransactionRequest request, String idempotencyKey, String requestedTraceId, String ownerKey) {
         var traceId = requestedTraceId == null || requestedTraceId.isBlank() ? UUID.randomUUID().toString() : requestedTraceId;
-        var redisKey = "transaction:idempotency:" + idempotencyKey;
+        var redisKey = "transaction:idempotency:" + ownerKey + ":" + idempotencyKey;
         var reservation = "pending:" + UUID.randomUUID();
         var reservedId = redisTemplate.opsForValue().setIfAbsent(redisKey, reservation);
         if (!Boolean.TRUE.equals(reservedId)) {
@@ -57,6 +63,7 @@ public class TransactionService {
         }
 
         var transactionEntity = new Transaction(request.amount(), request.currency(), request.description());
+        transactionEntity.assignOwner(ownerKey);
         transactionEntity.assignTraceId(traceId);
         var transaction = repository.save(transactionEntity);
         redisTemplate.opsForValue().set(redisKey, transaction.getId().toString());
@@ -76,11 +83,13 @@ public class TransactionService {
     public Transaction findById(UUID id) {
         return repository.findById(id).orElseThrow();
     }
+    public Transaction findById(UUID id, String ownerKey) { return repository.findByIdAndOwnerKey(id, ownerKey).orElseThrow(); }
 
     public List<TransactionStatusHistory> getStatusHistory(UUID id) {
         findById(id);
         return historyRepository.findByTransactionIdOrderByChangedAtAsc(id);
     }
+    public List<TransactionStatusHistory> getStatusHistory(UUID id, String ownerKey) { findById(id, ownerKey); return historyRepository.findByTransactionIdOrderByChangedAtAsc(id); }
 
     public void processCreatedEvent(TransactionCreatedEvent event) {
         try {
@@ -124,6 +133,7 @@ public class TransactionService {
         eventProducer.publish(new TransactionCreatedEvent(id, saved.getAmount(), saved.getCurrency(), saved.getStatus(), saved.getCreatedAt(), saved.getTraceId()));
         return saved;
     }
+    public Transaction retry(UUID id, String ownerKey) { findById(id, ownerKey); return retry(id); }
 
     public void markFailedAfterKafkaRetries(TransactionCreatedEvent event, String reason) {
         var transaction = findById(event.transactionId());
