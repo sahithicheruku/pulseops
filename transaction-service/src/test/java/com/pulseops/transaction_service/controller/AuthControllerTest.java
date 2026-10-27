@@ -28,7 +28,8 @@ import static org.mockito.Mockito.when;
 @TestPropertySource(properties = {
         "app.jwt.secret=test-secret-that-is-long-enough-32",
         "app.demo.username=test-user",
-        "app.demo.password=test-password"
+        "app.demo.password=test-password",
+        "app.demo.public-enabled=true"
 })
 class AuthControllerTest {
     @MockitoBean
@@ -52,6 +53,13 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"test-user\",\"password\":\"wrong\"}"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void publicDemoLoginReturnsJwtWithoutAcceptingCredentials() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/demo"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").isString());
     }
 
     @Test

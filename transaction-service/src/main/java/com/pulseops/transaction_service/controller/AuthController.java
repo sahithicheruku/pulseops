@@ -26,15 +26,27 @@ public class AuthController {
     private final JwtEncoder jwtEncoder;
     private final String username;
     private final String password;
+    private final boolean publicDemoEnabled;
     private final AuthService authService;
 
     public AuthController(JwtEncoder jwtEncoder,
             @Value("${app.demo.username}") String username,
-            @Value("${app.demo.password}") String password, AuthService authService) {
+            @Value("${app.demo.password}") String password,
+            @Value("${app.demo.public-enabled:false}") boolean publicDemoEnabled,
+            AuthService authService) {
         this.jwtEncoder = jwtEncoder;
         this.username = username;
         this.password = password;
+        this.publicDemoEnabled = publicDemoEnabled;
         this.authService = authService;
+    }
+
+    @PostMapping("/demo")
+    public LoginResponse demoLogin() {
+        if (!publicDemoEnabled) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Public demo is not enabled");
+        }
+        return token(username);
     }
 
     @PostMapping("/signup")

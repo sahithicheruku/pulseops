@@ -20,7 +20,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 @Component
-@Profile("demo & !production")
+@Profile({"demo & !production", "demo-seed-production"})
 public class DemoDataSeeder implements CommandLineRunner {
     private static final String SOURCE = "DEMO_SEED";
     private static final String NAMESPACE = "pulseops-demo-seed-v1";
@@ -29,21 +29,43 @@ public class DemoDataSeeder implements CommandLineRunner {
     private final TransactionStatusHistoryRepository histories;
     private final JdbcTemplate jdbcTemplate;
     private final String action;
+    private final boolean productionSeedMode;
 
     public DemoDataSeeder(TransactionRepository transactions, TransactionStatusHistoryRepository histories,
-            JdbcTemplate jdbcTemplate, @Value("${app.demo.seed.action:seed}") String action) {
+            JdbcTemplate jdbcTemplate, @Value("${app.demo.seed.action:seed}") String action,
+            @Value("${app.demo.seed.production:false}") boolean productionSeedMode) {
         this.transactions = transactions;
         this.histories = histories;
         this.jdbcTemplate = jdbcTemplate;
         this.action = action;
+        this.productionSeedMode = productionSeedMode;
     }
 
     @Override
     @Transactional
     public void run(String... args) {
+        if (productionSeedMode) return;
         if ("reset".equalsIgnoreCase(action) || "reseed".equalsIgnoreCase(action)) reset();
         if (!"reset".equalsIgnoreCase(action)) seed();
     }
+
+    @Transactional
+    public SeedReport seedInsertOnly() {
+        long totalBefore = count("SELECT COUNT(*) FROM transaction");
+        long nonDemoBefore = count("SELECT COUNT(*) FROM transaction WHERE source <> 'DEMO_SEED'");
+        long demoBefore = count("SELECT COUNT(*) FROM transaction WHERE source = 'DEMO_SEED'");
+        int inserted = seed();
+        long totalAfter = count("SELECT COUNT(*) FROM transaction");
+        long nonDemoAfter = count("SELECT COUNT(*) FROM transaction WHERE source <> 'DEMO_SEED'");
+        long demoAfter = count("SELECT COUNT(*) FROM transaction WHERE source = 'DEMO_SEED'");
+        long invalidDemoRows = count("SELECT COUNT(*) FROM transaction WHERE source = 'DEMO_SEED' AND owner_key <> 'demo'");
+        if (nonDemoBefore != nonDemoAfter || totalAfter != totalBefore + inserted || invalidDemoRows != 0) {
+            throw new IllegalStateException("Production demo seed safety verification failed");
+        }
+        return new SeedReport(totalBefore, nonDemoBefore, demoBefore, inserted, totalAfter, nonDemoAfter, demoAfter);
+    }
+
+    private long count(String sql) { return jdbcTemplate.queryForObject(sql, Long.class); }
 
     private void reset() {
         var seeded = transactions.findBySource(SOURCE);
@@ -51,8 +73,9 @@ public class DemoDataSeeder implements CommandLineRunner {
         transactions.deleteBySource(SOURCE);
     }
 
-    private void seed() {
+    private int seed() {
         var newHistories = new ArrayList<TransactionStatusHistory>();
+        int inserted = 0;
         var now = Instant.now();
         for (int index = 0; index < 120; index++) {
             var id = deterministicId(index);
@@ -86,9 +109,14 @@ public class DemoDataSeeder implements CommandLineRunner {
                     transaction.getRetryCount(), timestamp(transaction.getLastFailureAt()), transaction.getTraceId(),
                     transaction.getSource());
             newHistories.addAll(history(id, traceId, createdAt, status, failed));
+            inserted++;
         }
         if (!newHistories.isEmpty()) histories.saveAll(newHistories);
+        return inserted;
     }
+
+    public record SeedReport(long totalBefore, long nonDemoBefore, long demoBefore, int inserted,
+            long totalAfter, long nonDemoAfter, long demoAfter) { }
 
     private static List<TransactionStatusHistory> history(UUID id, String traceId, Instant createdAt,
             TransactionStatus finalStatus, boolean failed) {

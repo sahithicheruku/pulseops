@@ -24,6 +24,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
 
 @RestController
 @RequestMapping("/api/v1/transactions")
@@ -53,6 +55,7 @@ public class TransactionController {
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestHeader(value = "X-Correlation-ID", required = false) String correlationId,
             HttpServletRequest httpRequest, Authentication authentication) {
+        rejectDemoMutation(authentication);
         if (!rateLimiter.allow(httpRequest.getRemoteAddr())) {
             throw new RateLimitExceededException();
         }
@@ -73,7 +76,14 @@ public class TransactionController {
 
     @PostMapping("/{id}/retry")
     public Transaction retry(@PathVariable UUID id, Authentication authentication) {
+        rejectDemoMutation(authentication);
         return service.retry(id, authentication.getName());
+    }
+
+    private void rejectDemoMutation(Authentication authentication) {
+        if ("demo".equals(authentication.getName())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Demo access is read-only");
+        }
     }
 
     @GetMapping(value = "/{id}/status/stream", produces = "text/event-stream")

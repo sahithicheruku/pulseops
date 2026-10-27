@@ -128,6 +128,24 @@ class TransactionControllerIntegrationTest {
     }
 
     @Test
+    void demoUserCannotCreateTransactions() throws Exception {
+        mockMvc.perform(post("/api/v1/transactions").with(jwt().jwt(token -> token.subject("demo")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "demo-write")
+                        .content("{\"amount\":12.50,\"currency\":\"USD\"}"))
+                .andExpect(status().isForbidden())
+                ;
+    }
+
+    @Test
+    void demoUserCannotRetryTransactions() throws Exception {
+        mockMvc.perform(post("/api/v1/transactions/{id}/retry", UUID.randomUUID())
+                        .with(jwt().jwt(token -> token.subject("demo"))))
+                .andExpect(status().isForbidden())
+                ;
+    }
+
+    @Test
     void getReturnsTransactionById() throws Exception {
         var id = UUID.randomUUID();
         when(service.findById(id, "user")).thenReturn(new Transaction(new BigDecimal("7.00"), "EUR", "Train"));
